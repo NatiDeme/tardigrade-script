@@ -1,18 +1,10 @@
-#########################################################
-# Generates a geojson nested pie-chart from csv
-# Author: Nicolas Bozon
-# Copyright 2024 MapTiler AG
-#########################################################
-
 import csv
 import geojson
 from shapely.geometry import Polygon, mapping, LineString
 from pyproj import Proj, Transformer
 import math
 
-
 def load_csv_data(file_path):
-    # print(file_path)
     """Load CSV data and extract directions, risks, and center point."""
     directions = {}
     risks = {"R0": {},"R1": {}, "R2": {}}
@@ -24,10 +16,9 @@ def load_csv_data(file_path):
             area = row["Area"]
           
             if area == "Site":
-                # Extract center coordinates from the "Site" first row
                 center = (float(row["Lon_NO"]), float(row["Lat_NO"]))
-                direction='Site'
-                radius='0'
+                direction = 'Site'
+                radius = '0'
                 risk = row["Risk"]
                 radius_key = f"R{radius}"
                 if direction not in directions:
@@ -39,16 +30,13 @@ def load_csv_data(file_path):
             radius_key = f"R{radius}"
             risk = row["Risk"]
 
-            # Map direction and risk
             if direction not in directions:
                 directions[direction] = True
             risks[radius_key][direction] = risk
 
     if not center:
         raise ValueError("Center (site row) not found in the CSV file.")
-    # print('list', list(directions.keys()), 'risks',risks)
     return list(directions.keys()), risks, center
-
 
 def calculate_arc_points(center, radius, start_angle, end_angle, transformer_to_geo, num_points=30):
     """Calculate points along an arc for a given radius and angle range."""
@@ -59,33 +47,27 @@ def calculate_arc_points(center, radius, start_angle, end_angle, transformer_to_
     
     # Swap start and end angles to go counterclockwise
     start_angle, end_angle = end_angle, start_angle
-
+    
     angle_step = (end_angle - start_angle) / num_points
 
     for angle in range(num_points + 1):
         theta = math.radians(start_angle + angle * angle_step)
-        # Use sin for Y and cos for X for correct rotation
-        x = radius * math.cos(theta)
-        y = radius * math.sin(theta)
-        lon, lat = transformer_to_geo.transform(x, y)  # Converts back to geographic
+        x = radius * math.cos(theta)  # Use cos for X
+        y = radius * math.sin(theta)  # Use sin for Y
+        lon, lat = transformer_to_geo.transform(x, y)
         points.append((lon, lat))
     return points
 
 def create_sector_polygon(center, inner_radius, outer_radius, start_angle, end_angle, transformer_to_geo):
     """Create a sector polygon without overlapping points."""
-    # Calculate outer arc points
     outer_arc = calculate_arc_points(center, outer_radius, start_angle, end_angle, transformer_to_geo)
-    
-    # Calculate inner arc points in reverse order
     inner_arc = calculate_arc_points(center, inner_radius, end_angle, start_angle, transformer_to_geo)
-    
-    # Combine points to form a closed polygon
     points = outer_arc + inner_arc + [outer_arc[0]]
-    
     return Polygon(points)
 
 def calculate_radial_line(center, angle, radius, transformer_to_geo):
     """Calculate a line from center to the outer radius at given angle."""
+    # Adjust angle to start from North and go counterclockwise
     adjusted_angle = 90 - angle
     theta = math.radians(adjusted_angle)
     x = radius * math.cos(theta)
@@ -98,7 +80,7 @@ def generate_pie_chart(directions, risks, center, radius_most_inner, radius_inne
     features = []
 
     # Most Inner circle (R0)
-    most_inner_arc_points= calculate_arc_points(center, radius_most_inner, 0, 360, transformer_to_geo)
+    most_inner_arc_points = calculate_arc_points(center, radius_most_inner, 0, 360, transformer_to_geo)
     most_inner_polygon = Polygon(most_inner_arc_points + [most_inner_arc_points[0]])
 
     site_risk = risks["R0"].get("Site", "Unknown")
@@ -108,15 +90,12 @@ def generate_pie_chart(directions, risks, center, radius_most_inner, radius_inne
         properties={"Area": "Site", "Risk": site_risk, "Type": "polygon"}
     ))
      
-    # Calculate segments for R1 (100m) and R2 (200m)
+    # Calculate segments
     num_segments = len([d for d in directions if d != 'Site'])
     segment_angle = 360 / num_segments
     current_angle = 0
-
-    
     
     for direction in directions:
-        # Calculate start and end angles for the current segment
         if direction == 'Site':
             continue
         
@@ -125,7 +104,7 @@ def generate_pie_chart(directions, risks, center, radius_most_inner, radius_inne
 
         # Add radial lines for segment boundaries
         for angle in [start_angle, end_angle]:
-            radial_line = calculate_radial_line(center, angle, 200, transformer_to_geo)
+            radial_line = calculate_radial_line(center, angle, radius_outer, transformer_to_geo)
             features.append(geojson.Feature(
                 geometry=mapping(radial_line),
                 properties={
@@ -133,21 +112,24 @@ def generate_pie_chart(directions, risks, center, radius_most_inner, radius_inne
                     "Angle": angle
                 }
             ))
-        
 
-        # Inner circle (R2)
+        # Inner circle (R1)
         if direction in risks["R1"]:
-            inner_arc_points = create_sector_polygon(center, radius_most_inner, radius_inner, start_angle, end_angle, transformer_to_geo)
-
+            inner_arc_points = create_sector_polygon(
+                center, radius_most_inner, radius_inner, 
+                start_angle, end_angle, transformer_to_geo
+            )
             features.append(geojson.Feature(
                 geometry=mapping(inner_arc_points),
                 properties={"Area": f"{direction}_R1", "Risk": risks["R1"][direction], "Type": "polygon"}
             ))
 
-        # Outer circle (R3)
+        # Outer circle (R2)
         if direction in risks["R2"]:
-            outer_arc_points = create_sector_polygon(center,radius_inner, radius_outer, start_angle, end_angle, transformer_to_geo)
-
+            outer_arc_points = create_sector_polygon(
+                center, radius_inner, radius_outer,
+                start_angle, end_angle, transformer_to_geo
+            )
             features.append(geojson.Feature(
                 geometry=mapping(outer_arc_points),
                 properties={"Area": f"{direction}_R2", "Risk": risks["R2"][direction], "Type": "polygon"}
@@ -157,38 +139,20 @@ def generate_pie_chart(directions, risks, center, radius_most_inner, radius_inne
 
     return geojson.FeatureCollection(features)
 
-
-# def merge_inner_outer(most_inner, inner, outer):
-#     """Merge inner and outer pie charts into a single nested pie chart."""
-#     merged_features = most_inner["features"] + inner["features"] + outer["features"]
-#     return geojson.FeatureCollection(merged_features)
-
-
 def main():
-    # Input CSV file
     input_csv = "./input.csv"
-
-    # Load directions, risks, and center from csv
     directions, risks, center = load_csv_data(input_csv)
-
-    # Initialize transformer from WGS84 to azimuthal equidistant projection
+    
     local_proj = Proj(proj="aeqd", lat_0=center[1], lon_0=center[0])
     transformer_to_local = Transformer.from_proj("epsg:4326", local_proj, always_xy=True)
     transformer_to_geo = Transformer.from_proj(local_proj, "epsg:4326", always_xy=True)
 
-    # Generate inner and outer pie charts
-    # most_inner_pie_chart, inner_pie_chart, outer_pie_chart = generate_pie_chart(directions, risks, center, 20, 100, 200, transformer_to_geo)
-
-    # Merge into a single nested pie chart
     nested_pie_chart = generate_pie_chart(directions, risks, center, 20, 100, 200, transformer_to_geo)
 
-    # Save to GeoJSON
-    with open("nested_pie_chart.geojson", "w") as f:
+    with open("tryangle.geojson", "w") as f:
         geojson.dump(nested_pie_chart, f)
-    # print('done')
 
     print("Nested pie chart saved as: nested_pie_chart.geojson")
-
 
 if __name__ == "__main__":
     main()
