@@ -1,9 +1,3 @@
-#########################################################
-# Generates a geojson nested pie-chart from csv
-# Author: Nicolas Bozon
-# Copyright 2024 MapTiler AG
-#########################################################
-
 import csv
 import geojson
 from shapely.geometry import Polygon, mapping, LineString
@@ -158,12 +152,6 @@ def generate_pie_chart(directions, risks, center, radius_most_inner, radius_inne
     return geojson.FeatureCollection(features)
 
 
-# def merge_inner_outer(most_inner, inner, outer):
-#     """Merge inner and outer pie charts into a single nested pie chart."""
-#     merged_features = most_inner["features"] + inner["features"] + outer["features"]
-#     return geojson.FeatureCollection(merged_features)
-
-
 def main():
     # Input CSV file
     input_csv = "./input.csv"
@@ -173,11 +161,7 @@ def main():
 
     # Initialize transformer from WGS84 to azimuthal equidistant projection
     local_proj = Proj(proj="aeqd", lat_0=center[1], lon_0=center[0])
-    transformer_to_local = Transformer.from_proj("epsg:4326", local_proj, always_xy=True)
     transformer_to_geo = Transformer.from_proj(local_proj, "epsg:4326", always_xy=True)
-
-    # Generate inner and outer pie charts
-    # most_inner_pie_chart, inner_pie_chart, outer_pie_chart = generate_pie_chart(directions, risks, center, 20, 100, 200, transformer_to_geo)
 
     # Merge into a single nested pie chart
     nested_pie_chart = generate_pie_chart(directions, risks, center, 20, 100, 200, transformer_to_geo)
