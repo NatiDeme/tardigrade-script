@@ -6,7 +6,6 @@ import math
 
 
 def load_csv_data(file_path):
-    # print(file_path)
     """Load CSV data and extract directions, risks, and center point."""
     directions = {}
     risks = {"R0": {},"R1": {}, "R2": {}}
@@ -40,7 +39,6 @@ def load_csv_data(file_path):
 
     if not center:
         raise ValueError("Center (site row) not found in the CSV file.")
-    # print('list', list(directions.keys()), 'risks',risks)
     return list(directions.keys()), risks, center
 
 
@@ -169,7 +167,6 @@ def main():
     # Save to GeoJSON
     with open("nested_pie_chart.geojson", "w") as f:
         geojson.dump(nested_pie_chart, f)
-    # print('done')
 
     print("Nested pie chart saved as: nested_pie_chart.geojson")
 
